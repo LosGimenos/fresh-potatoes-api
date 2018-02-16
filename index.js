@@ -102,7 +102,14 @@ sequelize.sync().then(() => {
 });
 
 // ROUTES
-app.get('/films/:id/recommendations', getFilmRecommendations);
+app.get('/films/:id/recommendations',
+  getFilmRecommendations);
+app.get('*', (req, res) => {
+  let errorObject = {
+    message: 'These are not the routes you are looking for...'
+  }
+  res.status(404).json(errorObject);
+});
 
 // ROUTE HANDLER
 function getFilmRecommendations(req, res) {
@@ -218,11 +225,12 @@ function getFilmRecommendations(req, res) {
               totalReviewScore += review.rating;
             });
 
-            averageReviewRating = parseFloat(totalReviewScore / totalReviews).toFixed(1);
+            averageReviewRating = parseFloat(totalReviewScore / totalReviews).toFixed(2);
             reviewInfo['averageRating'] = averageReviewRating;
 
             reviewStats[reviews.film_id] = reviewInfo;
           });
+
           filmData.forEach((film, index) => {
             const cleanFilm = film.dataValues;
             const avRating = reviewStats[cleanFilm.id]['averageRating'];
@@ -232,7 +240,7 @@ function getFilmRecommendations(req, res) {
               delete cleanFilm['genre_id'];
               delete cleanFilm['release_date'];
               cleanFilm['genre'] = genreName;
-              cleanFilm['averageRating'] = avRating;
+              cleanFilm['averageRating'] = parseFloat(avRating);
               cleanFilm['reviews'] = reviewStats[cleanFilm.id]['reviews'];
               amendedFilmStats.push(cleanFilm);
             }
@@ -256,7 +264,6 @@ function getFilmRecommendations(req, res) {
         })
     })
     .catch(err => {
-      console.log(err, req)
       errorObject['message'] = err;
       res.status(422).json(errorObject);
     })
