@@ -37,7 +37,7 @@ const Films = sequelize.define('films', {
       primaryKey: true
     },
     title: Sequelize.STRING,
-    release_date: Sequelize.STRING,
+    release_date: Sequelize.DATE,
     tagline: Sequelize.STRING,
     revenue: Sequelize.INTEGER,
     budget: Sequelize.INTEGER,
@@ -118,6 +118,9 @@ function getFilmRecommendations(req, res) {
   };
 
   let filmId = req.params.id;
+  let limit = 10;
+  let offset = 1;
+
 
   Films
     .findById(filmId)
@@ -125,10 +128,44 @@ function getFilmRecommendations(req, res) {
       return film.dataValues;
     })
     .then(filmResponse => {
-      responseObject['recommendations'].push(filmResponse);
-      res.status(200).json(responseObject);
+      console.log(filmResponse);
+      const filmGenreId = parseInt(filmResponse.genre_id);
+      const filmDate = new Date(filmResponse.release_date);
+      const year = filmDate.getFullYear();
+      const month = filmDate.getMonth();
+      const day = filmDate.getDate();
+
+      let maxDate = new Date(year + 15, month, day);
+      // maxDate = maxDate.valueOf();
+      const minDate = new Date(year - 15, month, day);
+
+      Films.findAll({
+        attributes: ['id', 'title', 'release_date', 'genre_id'],
+        where: {
+          id: {
+            $ne: filmId
+          },
+          genre_id: filmGenreId,
+          release_date: {
+            $between: [minDate, maxDate]
+          }
+        },
+        // order: {
+        //   ['id', 'ASC']
+        // }
+      })
+        .then(films => {
+          res.status(200).json(films);
+          console.log(films);
+        })
+
+
+      // responseObject['recommendations'].push(filmResponse);
+      // res.status(200).json(responseObject);
+
     })
     .catch(err => {
+      errorObject['message'] = err;
       res.status(422).json(errorObject);
     })
 }
