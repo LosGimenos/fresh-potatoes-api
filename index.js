@@ -149,15 +149,31 @@ function getFilmRecommendations(req, res) {
           release_date: {
             $between: [minDate, maxDate]
           }
-        },
-        // order: {
-        //   ['id', 'ASC']
-        // }
+        }
       })
         .then(films => {
-          res.status(200).json(films);
-          console.log(films);
+          const apiBaseUrl =
+            'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1';
+          const filmsQuery = '?films=';
+          const filmIds = [];
+          let reviewsResponse = null;
+
+          films.forEach(filmData => {
+            filmIds.push(filmData.id);
+          });
+
+          const filmApiQueryUrl = apiBaseUrl + filmsQuery + filmIds;
+
+          return new Promise((resolve, reject) => {
+            request(filmApiQueryUrl, (error, response, body) => {
+              resolve(JSON.parse(response.body));
+            })
+          });
         })
+        .then(filmReviews => {
+          console.log(filmReviews);
+          res.status(200).json(filmReviews);
+        });
 
 
       // responseObject['recommendations'].push(filmResponse);
