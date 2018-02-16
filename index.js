@@ -99,28 +99,53 @@ sequelize.sync().then(() => {
   Promise.resolve()
     .then(() => app.listen(PORT, () => console.log(`App listening on port ${PORT}`)))
     .catch((err) => { if (NODE_ENV === 'development') console.error(err.stack); });
-
-  // ROUTES
-  app.get('/films/:id/recommendations', getFilmRecommendations);
 });
+
+// ROUTES
+app.get('/films/:id/recommendations', getFilmRecommendations);
 
 // ROUTE HANDLER
 function getFilmRecommendations(req, res) {
-  res.type('json');
-  res.header('Content-Type', 'application/json');
-
   let responseObject = {
     recommendations: []
   };
-
   let errorObject = {
     message: null
   };
-
   let filmId = req.params.id;
+  let queryKeys = Object.keys(req.query);
+  let hasLimit = false;
+  let hasOffset = false;
   let limit = 10;
-  let offset = 1;
+  let offset = 0;
+  const defaultRecommendationSize = 3;
+  let cutoff = defaultRecommendationSize;
 
+  if (queryKeys.indexOf('limit') >= 0) {
+    hasLimit = true;
+  }
+
+  if (queryKeys.indexOf('offset') >= 0) {
+    hasOffset = true;
+  }
+
+  if (hasLimit) {
+    if (req.query.limit == '') {
+      limit = 10;
+    } else {
+      limit = parseInt(req.query.limit);
+    }
+
+    cutoff = limit;
+  }
+
+  if (hasOffset) {
+    if (req.query.offset == '') {
+      offset = 1;
+    } else {
+      offset = parseInt(req.query.offset);
+    }
+  }
 
   Films
     .findById(filmId)
@@ -128,16 +153,19 @@ function getFilmRecommendations(req, res) {
       return film.dataValues;
     })
     .then(filmResponse => {
-      console.log(filmResponse);
       const filmGenreId = parseInt(filmResponse.genre_id);
       const filmDate = new Date(filmResponse.release_date);
       const year = filmDate.getFullYear();
       const month = filmDate.getMonth();
       const day = filmDate.getDate();
-
-      let maxDate = new Date(year + 15, month, day);
-      // maxDate = maxDate.valueOf();
+      const maxDate = new Date(year + 15, month, day);
       const minDate = new Date(year - 15, month, day);
+      let genreName = null;
+
+      Genres.findById(filmGenreId)
+        .then(genre => {
+          genreName = genre.name;
+        });
 
       Films.findAll({
         attributes: ['id', 'title', 'release_date', 'genre_id'],
@@ -156,7 +184,6 @@ function getFilmRecommendations(req, res) {
             'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1';
           const filmsQuery = '?films=';
           const filmIds = [];
-          let reviewsResponse = null;
 
           films.forEach(filmData => {
             filmIds.push(filmData.id);
@@ -166,21 +193,70 @@ function getFilmRecommendations(req, res) {
 
           return new Promise((resolve, reject) => {
             request(filmApiQueryUrl, (error, response, body) => {
-              resolve(JSON.parse(response.body));
+              resolve({
+                'reviewData': JSON.parse(response.body),
+                'filmData': films
+              });
             })
           });
         })
-        .then(filmReviews => {
-          console.log(filmReviews);
-          res.status(200).json(filmReviews);
-        });
+        .then(filmAndReviews => {
+          const { reviewData, filmData } = filmAndReviews;
+          const reviewStats = {}
+          const amendedFilmStats = [];
 
+          reviewData.forEach(reviews => {
+            let totalReviewScore = null;
+            let averageReviewRating = null;
+            const totalReviews = reviews['reviews'].length;
+            reviewInfo = {
+              'id': reviews.film_id,
+              'reviews': totalReviews
+            }
 
-      // responseObject['recommendations'].push(filmResponse);
-      // res.status(200).json(responseObject);
+            reviews['reviews'].forEach(review => {
+              totalReviewScore += review.rating;
+            });
 
+            averageReviewRating = parseFloat(totalReviewScore / totalReviews).toFixed(1);
+            reviewInfo['averageRating'] = averageReviewRating;
+
+            reviewStats[reviews.film_id] = reviewInfo;
+          });
+          filmData.forEach((film, index) => {
+            const cleanFilm = film.dataValues;
+            const avRating = reviewStats[cleanFilm.id]['averageRating'];
+
+            if (avRating >= 4.0 && amendedFilmStats.length < cutoff) {
+              cleanFilm['releaseDate'] = cleanFilm['release_date'];
+              delete cleanFilm['genre_id'];
+              delete cleanFilm['release_date'];
+              cleanFilm['genre'] = genreName;
+              cleanFilm['averageRating'] = avRating;
+              cleanFilm['reviews'] = reviewStats[cleanFilm.id]['reviews'];
+              amendedFilmStats.push(cleanFilm);
+            }
+          });
+
+          if (offset > 0) {
+            amendedFilmStats.splice(0, offset);
+          }
+
+          const finalResponse = {
+            'recommendations': amendedFilmStats,
+            'meta': {
+              'limit': limit,
+              'offset': offset
+            }
+          }
+          return finalResponse;
+        })
+        .then(recommendations => {
+          res.status(200).json(recommendations);
+        })
     })
     .catch(err => {
+      console.log(err, req)
       errorObject['message'] = err;
       res.status(422).json(errorObject);
     })
